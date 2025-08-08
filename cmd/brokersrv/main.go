@@ -1,8 +1,8 @@
 package main
 
 import (
-	"io"
-	"log"
+	"context"
+	"log/slog"
 	"math/rand"
 	"os"
 	"os/signal"
@@ -15,6 +15,7 @@ import (
 	"github.com/BurntSushi/toml"
 	"github.com/namsral/flag"
 	"github.com/nats-io/nats.go"
+	"github.com/vmkteam/embedlog"
 )
 
 const appName = "brokersrv"
@@ -23,6 +24,8 @@ var (
 	fs           = flag.NewFlagSetWithEnvPrefix(os.Args[0], "BROKERSRV", 0)
 	flConfigPath = fs.String("config", "config.toml", "Path to config file")
 	flVerbose    = fs.Bool("verbose", false, "enable debug output")
+	flJSONLogs   = fs.Bool("json", false, "enable json output")
+	flDev        = fs.Bool("dev", false, "enable dev mode")
 	cfg          app.Config
 )
 
@@ -30,10 +33,16 @@ func main() {
 	rand.New(rand.NewSource(time.Now().UnixNano()))
 	flag.DefaultConfigFlagname = "config.flag"
 	exitOnError(fs.Parse(os.Args[1:]))
-	fixStdLog(*flVerbose)
+
+	// setup logger
+	sl, ctx := embedlog.NewLogger(*flVerbose, *flJSONLogs), context.Background()
+	if *flDev {
+		sl = embedlog.NewDevLogger()
+	}
+	slog.SetDefault(sl.Log()) // set default logger
 
 	version := appVersion()
-	log.Printf("starting %v version=%v", appName, version)
+	sl.Print(ctx, "starting", "app", appName, "version", version)
 	if _, err := toml.DecodeFile(*flConfigPath, &cfg); err != nil {
 		exitOnError(err)
 	}
@@ -43,38 +52,27 @@ func main() {
 	exitOnError(err)
 
 	// create & run app
-	application := app.New(appName, cfg, nc)
+	a := app.New(appName, sl, cfg, nc)
 
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, os.Interrupt, syscall.SIGTERM)
 
 	// Run
 	go func() {
-		if err := application.Run(); err != nil {
+		if err := a.Run(ctx); err != nil {
 			exitOnError(err)
 		}
 	}()
 	<-quit
-	application.Shutdown(5 * time.Second)
-}
-
-// fixStdLog sets additional params to std logger (prefix D, filename & line).
-func fixStdLog(verbose bool) {
-	log.SetPrefix("D")
-	log.SetFlags(log.LstdFlags | log.Lshortfile)
-
-	if verbose {
-		log.SetOutput(os.Stdout)
-	} else {
-		log.SetOutput(io.Discard)
-	}
+	a.Shutdown(5 * time.Second)
 }
 
 // exitOnError calls log.Fatal if err wasn't nil.
 func exitOnError(err error) {
 	if err != nil {
-		log.SetOutput(os.Stderr)
-		log.Fatal(err)
+		//nolint:sloglint
+		slog.Error(err.Error())
+		os.Exit(1)
 	}
 }
 

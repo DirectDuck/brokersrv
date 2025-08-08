@@ -8,31 +8,38 @@ import (
 	"time"
 
 	"github.com/vmkteam/brokersrv/pkg/rpcqueue"
+
+	"github.com/vmkteam/embedlog"
 	"github.com/vmkteam/zenrpc/v2"
 	"github.com/vmkteam/zenrpc/v2/testdata"
 )
 
 var (
-	testRpcNamespace  = "arith"
+	testRPCNamespace  = "arith"
 	testZenrpcRequest = zenrpc.Request{
 		Version: "2.0",
-		Method:  testRpcNamespace + "." + testdata.RPC.ArithService.Multiply,
+		Method:  testRPCNamespace + "." + testdata.RPC.ArithService.Multiply,
 		Params:  json.RawMessage(`{"a":1,"b":2}`),
 	}
 )
 
 func TestQueueManager(t *testing.T) {
-	ctx := context.Background()
-	err := testApp.qm.Publish(ctx, testRpcSrvSubject, testZenrpcRequest, http.Header{})
+	ctx := t.Context()
+	err := testApp.qm.Publish(ctx, rpcqueue.StreamName, testRPCSrvSubject, testZenrpcRequest, http.Header{})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	testRpc := zenrpc.NewServer(zenrpc.Options{AllowCORS: true, HideErrorDataField: true})
-	testRpc.Use(testRpcMiddleware(t))
-	testRpc.Register(testRpcNamespace, &testdata.ArithService{})
+	testRPC := zenrpc.NewServer(zenrpc.Options{AllowCORS: true, HideErrorDataField: true})
+	testRPC.Use(testRPCMiddleware(t))
+	testRPC.Register(testRPCNamespace, &testdata.ArithService{})
 
-	testQueue := rpcqueue.New(testRpcSrvSubject, testRpcQueueClient.JetStreamConn, testRpc, t.Logf)
+	client, err := rpcqueue.NewClient(ctx, rpcqueue.Config{URL: testNatsURL}, testAppName)
+	if err != nil {
+		panic(err)
+	}
+
+	testQueue := rpcqueue.New(testRPCSrvSubject, client, testRPC, embedlog.Logger{}.Print)
 
 	err = testQueue.Run(ctx)
 	if err != nil {
@@ -41,7 +48,7 @@ func TestQueueManager(t *testing.T) {
 	time.Sleep(2 * time.Second)
 }
 
-func testRpcMiddleware(t *testing.T) zenrpc.MiddlewareFunc {
+func testRPCMiddleware(t *testing.T) zenrpc.MiddlewareFunc {
 	return func(h zenrpc.InvokeFunc) zenrpc.InvokeFunc {
 		return func(ctx context.Context, method string, params json.RawMessage) zenrpc.Response {
 			methodWithNS := zenrpc.NamespaceFromContext(ctx) + "." + method

@@ -5,5 +5,8 @@ Port    = 8071
 [NATS]
 URL = "nats://localhost:4222"
 
-[Settings]
+[LegacySettings]
 RpcServices = [ "testsrv" ]
+
+[Settings]
+RpcServices = [ "test2srv" ]

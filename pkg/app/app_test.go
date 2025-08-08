@@ -2,6 +2,7 @@ package app
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"math/rand"
@@ -12,19 +13,23 @@ import (
 	"time"
 
 	"github.com/vmkteam/brokersrv/pkg/rpcqueue"
+
+	"github.com/nats-io/nats.go"
+	"github.com/nats-io/nats.go/jetstream"
+	"github.com/vmkteam/embedlog"
 )
 
 var (
 	testAppName       = "testbrokersrv"
 	testSrvSubject    = "testsrv"
-	testRpcSrvSubject = "testrpcsrv"
-	testNatsSubjects  = []string{testSrvSubject, testRpcSrvSubject}
+	testRPCSrvSubject = "testrpcsrv"
+	testNatsSubjects  = []string{testSrvSubject, testRPCSrvSubject}
 
 	testApp            *App
 	testRpcQueueClient *rpcqueue.Client
 )
 
-var testNatsUrl = env("NATS_URL", "nats://localhost:4222")
+var testNatsURL = env("NATS_URL", "nats://localhost:4222")
 
 func env(v, def string) string {
 	if r := os.Getenv(v); r != "" {
@@ -39,26 +44,34 @@ func TestMain(m *testing.M) {
 
 	var cfg Config
 	cfg.Settings.RpcServices = testNatsSubjects
-	cfg.NATS.URL = testNatsUrl
+	cfg.NATS.URL = testNatsURL
 	cfg.Server.Host = "0.0.0.0"
 	cfg.Server.Port = 9984
 
-	nc, err := rpcqueue.NewClient(rpcqueue.Config{URL: cfg.NATS.URL}, testAppName)
+	_, err := rpcqueue.NewClient(context.Background(), rpcqueue.Config{URL: cfg.NATS.URL}, testAppName)
 	if err != nil {
 		panic(err)
 	}
-	testRpcQueueClient = nc
-
-	testApp = New(testAppName, cfg, testRpcQueueClient.NatsConn)
-	testApp.registerHandlers()
-	if err = testApp.registerJetStream(); err != nil {
+	nc, err := nats.Connect(
+		cfg.NATS.URL, nats.Name(testAppName),
+	)
+	if err != nil {
 		panic(err)
 	}
-	testApp.qm = NewQueueManager(testRpcQueueClient.JetStreamConn)
+	js, err := jetstream.New(nc)
+	if err != nil {
+		panic(err)
+	}
+
+	testApp = New(testAppName, embedlog.Logger{}, cfg, nc)
+	testApp.registerHandlers()
+	if err = testApp.registerJetStream(context.Background()); err != nil {
+		panic(err)
+	}
+	testApp.qm = NewQueueManager(js)
 
 	runTests := m.Run()
 	os.Exit(runTests)
-
 }
 
 func TestApp(t *testing.T) {
@@ -104,5 +117,4 @@ func TestApp(t *testing.T) {
 			t.Errorf("Input: %s\n got %s expected %s", c.in, resp, c.out)
 		}
 	}
-
 }

@@ -1,19 +1,21 @@
 package app
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
+
+	"github.com/vmkteam/brokersrv/pkg/rpcqueue"
 
 	"github.com/labstack/echo/v4"
 	"github.com/vmkteam/zenrpc/v2"
 )
 
 // runHTTPServer is a function that starts http listener using labstack/echo.
-func (a *App) runHTTPServer(host string, port int) error {
+func (a *App) runHTTPServer(ctx context.Context, host string, port int) error {
 	listenAddress := fmt.Sprintf("%s:%d", host, port)
-	log.Printf("starting http listener at http://%s\n", listenAddress)
+	a.Print(ctx, "starting http listener", "url", "http://"+listenAddress)
 
 	return a.echo.Start(listenAddress)
 }
@@ -33,13 +35,14 @@ func (a *App) registerDebugHandlers() {
 }
 
 func (a *App) registerHandlers() {
-	a.echo.Any("/rpc/:service/", a.processRpcServices)
+	a.echo.Any("/rpc/:service/", a.processRPCServices)
 }
 
-func (a *App) processRpcServices(c echo.Context) error {
+func (a *App) processRPCServices(c echo.Context) error {
 	service := c.Param("service")
+	stream := a.serviceStream(service)
 
-	if !a.serviceExists(service) {
+	if stream == "" {
 		return c.JSON(http.StatusInternalServerError, zenrpc.NewResponseError(nil, zenrpc.InvalidRequest, "service not exists", nil))
 	}
 
@@ -52,7 +55,7 @@ func (a *App) processRpcServices(c echo.Context) error {
 		return c.JSON(http.StatusInternalServerError, zenrpc.NewResponseError(nil, zenrpc.InvalidParams, "request ID not empty", nil))
 	}
 
-	err = a.qm.Publish(c.Request().Context(), service, req, c.Request().Header)
+	err = a.qm.Publish(c.Request().Context(), stream, service, req, c.Request().Header)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, zenrpc.NewResponseError(nil, zenrpc.InternalError, err.Error(), nil))
 	}
@@ -60,12 +63,16 @@ func (a *App) processRpcServices(c echo.Context) error {
 	return c.JSON(http.StatusOK, nil)
 }
 
-func (a *App) serviceExists(service string) bool {
-	serviceExists := false
+func (a *App) serviceStream(service string) string {
 	for _, s := range a.cfg.Settings.RpcServices {
 		if s == service {
-			serviceExists = true
+			return rpcqueue.StreamName
 		}
 	}
-	return serviceExists
+	for _, s := range a.cfg.LegacySettings.RpcServices {
+		if s == service {
+			return rpcqueue.LegacyStreamName
+		}
+	}
+	return ""
 }
