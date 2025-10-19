@@ -6,9 +6,9 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/nats-io/nats.go/jetstream"
 	"github.com/vmkteam/brokersrv/pkg/rpcqueue"
 
+	"github.com/nats-io/nats.go/jetstream"
 	"github.com/vmkteam/zenrpc/v2"
 )
 

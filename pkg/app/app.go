@@ -2,30 +2,38 @@ package app
 
 import (
 	"context"
-	"log"
+	"fmt"
 	"time"
 
-	"github.com/nats-io/nats.go/jetstream"
 	"github.com/vmkteam/brokersrv/pkg/rpcqueue"
 
 	"github.com/labstack/echo/v4"
 	"github.com/nats-io/nats.go"
+	"github.com/nats-io/nats.go/jetstream"
+	"github.com/vmkteam/appkit"
+	"github.com/vmkteam/embedlog"
 )
 
 type Config struct {
 	Server struct {
-		Host string
-		Port int
+		Host    string
+		Port    int
+		IsDevel bool
 	}
 	NATS struct {
 		URL string
 	}
 	Settings struct {
-		RpcServices []string
+		RPCServices []string
+	}
+	Sentry struct {
+		Environment string
+		DSN         string
 	}
 }
 
 type App struct {
+	embedlog.Logger
 	appName string
 	cfg     Config
 	echo    *echo.Echo
@@ -35,35 +43,35 @@ type App struct {
 	qm *QueueManager
 }
 
-func New(appName string, cfg Config, nc *nats.Conn) *App {
+func New(appName string, sl embedlog.Logger, cfg Config, nc *nats.Conn) *App {
 	a := &App{
 		appName: appName,
 		cfg:     cfg,
-		echo:    echo.New(),
+		echo:    appkit.NewEcho(),
+		Logger:  sl,
 	}
-	a.echo.HideBanner = true
-	a.echo.HidePort = true
 	a.nc = nc
 
 	return a
 }
 
 // Run is a function that runs application.
-func (a *App) Run() error {
+func (a *App) Run(ctx context.Context) error {
 	a.registerDebugHandlers()
 	a.registerHandlers()
 	a.registerMetrics()
-	if err := a.registerJetStream(); err != nil {
+	a.registerMiddlewares()
+
+	if err := a.registerJetStream(ctx); err != nil {
 		return err
 	}
 	a.qm = NewQueueManager(a.js)
 
-	return a.runHTTPServer(a.cfg.Server.Host, a.cfg.Server.Port)
+	return a.runHTTPServer(ctx, a.cfg.Server.Host, a.cfg.Server.Port)
 }
 
 // registerJetStream configure and register stream for NATS JetStream
-func (a *App) registerJetStream() error {
-	ctx := context.Background()
+func (a *App) registerJetStream(ctx context.Context) error {
 	js, err := jetstream.New(a.nc)
 	if err != nil {
 		return err
@@ -83,15 +91,17 @@ func (a *App) registerJetStream() error {
 }
 
 // Shutdown is a function that gracefully stops HTTP server.
-func (a *App) Shutdown(timeout time.Duration) {
+func (a *App) Shutdown(timeout time.Duration) error {
 	if err := a.nc.Drain(); err != nil {
-		log.Printf("shutting down NATS connection err=%q", err)
+		return fmt.Errorf("NATS connection: %w", err)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
 	if err := a.echo.Shutdown(ctx); err != nil {
-		log.Printf("shutting down server err=%q", err)
+		return fmt.Errorf("shutdown http server: %w", err)
 	}
+
+	return nil
 }

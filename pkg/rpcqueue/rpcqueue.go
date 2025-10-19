@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/labstack/echo/v4"
@@ -30,23 +31,28 @@ type RPCQueue struct {
 	subject string
 	js      jetstream.JetStream
 	srv     zenrpc.Server
-	pf      Printf
+	pf      Print
+	ctx     context.Context
 }
 
-type Printf func(format string, v ...interface{})
+type Print func(ctx context.Context, msg string, args ...any)
 
-var statEvents *prometheus.CounterVec
-
-// New initialize new brokersrv rpc queue.
-func New(subject string, js jetstream.JetStream, srv zenrpc.Server, pf Printf) RPCQueue {
+var (
 	statEvents = prometheus.NewCounterVec(prometheus.CounterOpts{
-		Namespace: subject,
+		Namespace: "app",
 		Subsystem: "rpcqueue",
 		Name:      "events_total",
 		Help:      "RPC queue events distributions.",
-	}, []string{"type"})
+	}, []string{"type", "subject"})
 
-	prometheus.MustRegister(statEvents)
+	registerMetricsOnce sync.Once
+)
+
+// New initialize new brokersrv rpc queue.
+func New(subject string, js jetstream.JetStream, srv zenrpc.Server, pf Print) RPCQueue {
+	registerMetricsOnce.Do(func() {
+		prometheus.MustRegister(statEvents)
+	})
 
 	return RPCQueue{
 		subject: subject,
@@ -70,6 +76,8 @@ func (q *RPCQueue) Run(ctx context.Context) error {
 		return err
 	}
 
+	q.ctx = ctx // set base context from Run
+
 	_, err = c.Consume(q.handleMessage)
 	if err != nil {
 		return err
@@ -87,37 +95,37 @@ func (q *RPCQueue) handleMessage(message jetstream.Msg) {
 
 	err := json.Unmarshal(message.Data(), &m)
 	if err != nil {
-		statEvents.WithLabelValues("error").Inc()
-		q.pf("failed to unmarshal message err=%q", err)
+		statEvents.WithLabelValues("error", q.subject).Inc()
+		q.pf(q.ctx, "failed to unmarshal message ", "err", err)
 		return
 	}
 
 	err = json.Unmarshal(m.Request, &zenrpcReq)
 	if err != nil {
-		statEvents.WithLabelValues("error").Inc()
-		q.pf("failed to unmarshal zenrpc request err=%q", err)
+		statEvents.WithLabelValues("error", q.subject).Inc()
+		q.pf(q.ctx, "failed to unmarshal zenrpc request", "err", err)
 		return
 	}
 
-	_, err = q.srv.Do(q.newContext(m.Header), m.Request)
+	ctx := q.newContext(q.ctx, m.Header)
+	_, err = q.srv.Do(ctx, m.Request)
 	if err != nil {
-		statEvents.WithLabelValues("error").Inc()
-		q.pf("failed to send request to rpc server err=%q", err)
+		statEvents.WithLabelValues("error", q.subject).Inc()
+		q.pf(ctx, "failed to send request to rpc server", "err", err)
 		return
 	}
 
 	if err = message.Ack(); err != nil {
-		statEvents.WithLabelValues("error").Inc()
-		q.pf("failed to ack message=%q err=%q", string(message.Data()), err)
+		statEvents.WithLabelValues("error", q.subject).Inc()
+		q.pf(ctx, "failed to ack", "message", string(message.Data()), "err", err)
 		return
 	}
 
-	statEvents.WithLabelValues("success").Inc()
+	statEvents.WithLabelValues("success", q.subject).Inc()
 }
 
 // newContext create new context with data from headers.
-func (q *RPCQueue) newContext(h http.Header) context.Context {
-	ctx := context.Background()
+func (q *RPCQueue) newContext(ctx context.Context, h http.Header) context.Context {
 	ctx = zm.NewIPContext(ctx, "127.0.0.1")
 	ctx = zm.NewXRequestIDContext(ctx, h.Get(echo.HeaderXRequestID))
 	ctx = zm.NewUserAgentContext(ctx, h.Get("User-Agent"))

@@ -6,4 +6,4 @@ Port    = 8071
 URL = "nats://localhost:4222"
 
 [Settings]
-RpcServices = [ "testsrv" ]
+RPCServices = [ "testsrv" ]
