@@ -10,30 +10,35 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
+	"github.com/vmkteam/appkit"
 	"github.com/vmkteam/embedlog"
 )
 
 //nolint:staticcheck
 type Config struct {
 	Server struct {
-		Host string
-		Port int
+		Host    string
+		Port    int
+		IsDevel bool
 	}
 	NATS struct {
 		URL            string
 		StreamReplicas int
 	}
 	LegacySettings struct {
-		RpcServices []string
+		RPCServices []string
 	}
 	Settings struct {
-		RpcServices []string
+		RPCServices []string
+	}
+	Sentry struct {
+		Environment string
+		DSN         string
 	}
 }
 
 type App struct {
 	embedlog.Logger
-
 	appName string
 	cfg     Config
 	echo    *echo.Echo
@@ -49,10 +54,8 @@ func New(appName string, sl embedlog.Logger, cfg Config, nc *nats.Conn) *App {
 		Logger:  sl,
 		appName: appName,
 		cfg:     cfg,
-		echo:    echo.New(),
+		echo:    appkit.NewEcho(),
 	}
-	a.echo.HideBanner = true
-	a.echo.HidePort = true
 	a.nc = nc
 
 	return a
@@ -63,6 +66,8 @@ func (a *App) Run(ctx context.Context) error {
 	a.registerDebugHandlers()
 	a.registerHandlers()
 	a.registerMetrics()
+	a.registerMiddlewares()
+
 	if err := a.registerJetStream(ctx); err != nil {
 		return err
 	}
@@ -92,7 +97,11 @@ func (a *App) registerJetStream(ctx context.Context) error {
 }
 
 // Shutdown is a function that gracefully stops HTTP server.
-func (a *App) Shutdown(timeout time.Duration) {
+func (a *App) Shutdown(timeout time.Duration) error {
+	if err := a.nc.Drain(); err != nil {
+		return fmt.Errorf("NATS connection: %w", err)
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
@@ -101,6 +110,8 @@ func (a *App) Shutdown(timeout time.Duration) {
 	}
 
 	if err := a.echo.Shutdown(ctx); err != nil {
-		a.Print(ctx, "shutting down server", "err", err)
+		return fmt.Errorf("shutdown http server: %w", err)
 	}
+
+	return nil
 }

@@ -5,14 +5,10 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"math/rand"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"testing"
-	"time"
-
-	"github.com/vmkteam/brokersrv/pkg/rpcqueue"
 
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
@@ -25,8 +21,7 @@ var (
 	testRPCSrvSubject = "testrpcsrv"
 	testNatsSubjects  = []string{testSrvSubject, testRPCSrvSubject}
 
-	testApp            *App
-	testRpcQueueClient *rpcqueue.Client
+	testApp *App
 )
 
 var testNatsURL = env("NATS_URL", "nats://localhost:4222")
@@ -40,18 +35,12 @@ func env(v, def string) string {
 }
 
 func TestMain(m *testing.M) {
-	rand.New(rand.NewSource(time.Now().UTC().UnixNano()))
-
 	var cfg Config
-	cfg.Settings.RpcServices = testNatsSubjects
+	cfg.Settings.RPCServices = testNatsSubjects
 	cfg.NATS.URL = testNatsURL
 	cfg.Server.Host = "0.0.0.0"
 	cfg.Server.Port = 9984
 
-	_, err := rpcqueue.NewClient(context.Background(), rpcqueue.Config{URL: cfg.NATS.URL}, testAppName)
-	if err != nil {
-		panic(err)
-	}
 	nc, err := nats.Connect(
 		cfg.NATS.URL, nats.Name(testAppName),
 	)

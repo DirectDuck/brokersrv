@@ -7,7 +7,7 @@ URL = "nats://localhost:4222"
 StreamReplicas = 1
 
 [LegacySettings]
-RpcServices = [ "testsrv" ]
+RPCServices = [ "testsrv" ]
 
 [Settings]
-RpcServices = [ "test2srv" ]
+RPCServices = [ "test2srv" ]

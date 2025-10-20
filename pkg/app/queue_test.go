@@ -21,10 +21,11 @@ var (
 		Method:  testRPCNamespace + "." + testdata.RPC.ArithService.Multiply,
 		Params:  json.RawMessage(`{"a":1,"b":2}`),
 	}
+	testLogger = embedlog.NewDevLogger()
 )
 
 func TestQueueManager(t *testing.T) {
-	ctx := t.Context()
+	ctx := context.Background()
 	err := testApp.qm.Publish(ctx, rpcqueue.StreamName, testRPCSrvSubject, testZenrpcRequest, http.Header{})
 	if err != nil {
 		t.Fatal(err)
@@ -39,7 +40,7 @@ func TestQueueManager(t *testing.T) {
 		panic(err)
 	}
 
-	testQueue := rpcqueue.New(testRPCSrvSubject, client, testRPC, embedlog.Logger{}.Print)
+	testQueue := rpcqueue.New(testRPCSrvSubject, client, testRPC, testLogger.Print)
 
 	err = testQueue.Run(ctx)
 	if err != nil {

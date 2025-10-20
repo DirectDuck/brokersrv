@@ -26,7 +26,7 @@ URL = "nats://localhost:4222"
 StreamReplicas = 1
 
 [Settings]
-RpcServices = [ "testsrv" ]
+RPCServices = [ "testsrv" ]
 ```
 
 ### Use brokersrv package in testrpc for processing RPC requests from NATS JetStream Server
