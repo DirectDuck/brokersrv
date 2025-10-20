@@ -23,6 +23,7 @@ Port    = 8071
 
 [NATS]
 URL = "nats://localhost:4222"
+StreamReplicas = 1
 
 [Settings]
 RpcServices = [ "testsrv" ]

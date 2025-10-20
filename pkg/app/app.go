@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/vmkteam/brokersrv/pkg/rpcqueue"
@@ -19,7 +20,8 @@ type Config struct {
 		Port int
 	}
 	NATS struct {
-		URL string
+		URL            string
+		StreamReplicas int
 	}
 	LegacySettings struct {
 		RpcServices []string
@@ -71,20 +73,21 @@ func (a *App) Run(ctx context.Context) error {
 
 // registerJetStream configure and register stream for NATS JetStream
 func (a *App) registerJetStream(ctx context.Context) error {
-	js, err := jetstream.New(a.nc)
+	var err error
+	a.js, err = jetstream.New(a.nc)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to get jetstream context: %w", err)
 	}
-	a.js = js
 
 	jsCfg := jetstream.StreamConfig{
 		Name:      rpcqueue.StreamName,
 		Retention: jetstream.WorkQueuePolicy,
 		Storage:   jetstream.FileStorage,
 		Subjects:  []string{rpcqueue.StreamName + ".*"},
+		Replicas:  a.cfg.NATS.StreamReplicas,
 	}
 
-	a.stream, err = js.CreateOrUpdateStream(ctx, jsCfg)
+	a.stream, err = a.js.CreateOrUpdateStream(ctx, jsCfg)
 	return err
 }
 
