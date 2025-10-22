@@ -12,7 +12,7 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/prometheus/client_golang/prometheus"
-	zm "github.com/vmkteam/zenrpc-middleware"
+	"github.com/vmkteam/appkit"
 	"github.com/vmkteam/zenrpc/v2"
 )
 
@@ -39,14 +39,14 @@ type Message struct {
 type RPCQueue struct {
 	subject string
 	client  *Client
-	srv     zenrpc.Server
+	srv     *zenrpc.Server
 	pf      Print
 }
 
 type Print func(ctx context.Context, msg string, args ...any)
 
 // New initialize new brokersrv rpc queue.
-func New(subject string, client *Client, srv zenrpc.Server, p Print) RPCQueue {
+func New(subject string, client *Client, srv *zenrpc.Server, p Print) RPCQueue {
 	registerMetricsOnce.Do(func() {
 		prometheus.MustRegister(statEvents)
 	})
@@ -181,11 +181,11 @@ func (q *RPCQueue) messageHandler(ctx context.Context) jetstream.MessageHandler 
 
 // newContext create new context with data from headers.
 func (q *RPCQueue) newContext(ctx context.Context, h http.Header) context.Context {
-	ctx = zm.NewIPContext(ctx, "127.0.0.1")
-	ctx = zm.NewXRequestIDContext(ctx, h.Get(echo.HeaderXRequestID))
-	ctx = zm.NewUserAgentContext(ctx, h.Get("User-Agent"))
-	ctx = zm.NewVersionContext(ctx, h.Get("Version"))
-	ctx = zm.NewPlatformContext(ctx, h.Get("Platform"))
+	ctx = appkit.NewIPContext(ctx, "127.0.0.1")
+	ctx = appkit.NewXRequestIDContext(ctx, h.Get(echo.HeaderXRequestID))
+	ctx = appkit.NewUserAgentContext(ctx, h.Get("User-Agent"))
+	ctx = appkit.NewVersionContext(ctx, h.Get("Version"))
+	ctx = appkit.NewPlatformContext(ctx, h.Get("Platform"))
 
 	return ctx
 }
