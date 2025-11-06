@@ -86,6 +86,8 @@ func (q *RPCQueue) Run(ctx context.Context) error {
 		AckPolicy:     jetstream.AckExplicitPolicy,
 		MaxAckPending: q.client.config.MaxAckPending,
 		AckWait:       time.Duration(q.client.config.MaxAckWait) * time.Second,
+		MaxDeliver:    3,
+		BackOff:       []time.Duration{time.Second, 5 * time.Second, 30 * time.Second},
 	}
 	c, err := q.client.stream.CreateOrUpdateConsumer(ctx, cfg)
 
